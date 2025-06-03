@@ -1,5 +1,5 @@
 # db_handler.py
-
+import pytz
 import os
 import asyncpg
 from datetime import datetime
@@ -33,10 +33,11 @@ async def save_expense(
 ) -> None:
     """
     Добавляет пользователя, категорию, подкатегорию и новую запись в purchases.
-    Записывает поле ts как локальную datetime.
+    Записывает поле ts как Moscow datetime.
     """
     pool = await _get_pool()
-    ts = datetime.now()  # локальное дата-время
+    ts  = datetime.now(pytz.timezone("Europe/Moscow")).replace(tzinfo=None, microsecond=0)
+
 
     async with pool.acquire() as conn:
         # 1) users

@@ -1,14 +1,11 @@
-# Тестовые примеры
-from parse_expense import parse_expense
-test_cases = [
-    "еда ведро картошки 500 рублей",
-    "транспорт такси 1500",
-    "быт хозтовары мыло 75 р",
-    "эдл малако 80",
-    "развлечения кино билет 350"
-]
+from datetime import datetime
+import pytz
 
-for test in test_cases:
-    category, item, price = parse_expense(test)
-    print(f"Ввод: {test}")
-    print(f"Результат: ({category}, {item}, {price})\n")
+# moscow_tz = pytz.timezone("Europe/Moscow")
+#now_with_tz = datetime.now(pytz.timezone("Europe/Moscow"))  # С временной зоной
+#naive_time = now_with_tz.replace(tzinfo=None, microsecond=0)
+
+
+naive_time = datetime.now(pytz.timezone("Europe/Moscow")).replace(tzinfo=None, microsecond=0)
+
+print(naive_time)  # Пример: 2024-06-20 15:30:00 (без временной зоны)
