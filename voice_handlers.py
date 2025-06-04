@@ -3,7 +3,7 @@ import os
 import asyncio
 from aiogram import Bot
 from aiogram.types import Message
-from transcribe_with_denoise import transcribe_with_denoise
+from transcribe_v import transcribe_v
 from handlers_common import process_user_input, show_parser_result
 from parse_expense import parse_expense_v
 from db_handler import save_expense
@@ -60,7 +60,7 @@ async def handle_voice_message(message: Message, bot: Bot):
         await bot.download_file(file.file_path, destination=local_path)
         
         # Транскрибация
-        raw = transcribe_with_denoise(input_file=local_path, 
+        raw = transcribe_v(input_file=local_path, 
                                     whisper_model="small", 
                                     language="ru")
         
