@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 
 from text_handlers import handle_text_message
 from voice_handlers import handle_voice_message
+from photo_handlers import handle_photo_message
+
 
 load_dotenv()
 API_TOKEN = os.getenv('API_TOKEN')
@@ -36,6 +38,7 @@ async def on_start(message: Message):
 # Регистрация обработчиков
 dp.message.register(handle_text_message, F.text & ~F.voice)
 dp.message.register(handle_voice_message, F.voice)
+dp.message.register(handle_photo_message, F.photo)
 
 
 async def main():

@@ -84,6 +84,69 @@ def parse_expense_t(raw_input: str) -> tuple:
         return None, None, None
 
 
+def parse_expense_ph(items_with_price):
+    """
+    Принимает список товаров с ценами и возвращает список кортежей:
+    (категория, название_товара, цена)
+
+    Параметры:
+        items_with_price (list of tuples): [(name, price), ...]
+
+    Возвращает:
+        list of tuples: [(category, name, price), ...]
+    """
+    # Формируем список названий для передачи в LLM
+    names = [name for name, price in items_with_price]
+
+    # Собираем промпт
+    prompt = """
+У тебя есть список покупок с названиями товаров. Для каждого названия нужно определить категорию товара.
+Категория должна быть одним словом в родительном падеже (например, 'фрукты', 'молоко', 'овощи', 'напитки').
+Возвращай список в формате:
+название1|категория1
+название2|категория2
+...
+
+Список товаров:
+"""
+    for name in names:
+        prompt += f"- {name}\n"
+    prompt += "\nДай ответ строго в указанном формате без лишних пояснений."
+
+    try:
+        response = openai.ChatCompletion.create(
+            model=LLM_MODEL,
+            api_base=OPENROUTER_API_BASE,
+            api_key=OPENROUTER_API_KEY,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens= len(names) * 20
+        )
+        ai_output = response['choices'][0]['message']['content'].strip()
+    except Exception as e:
+        print(f"Ошибка при получении категорий товаров: {e}")
+        # Вернуть исходный список с пустыми категориями
+        return [(None, name, price) for name, price in items_with_price]
+
+    # Разбираем вывод
+    result = []
+    lines = ai_output.splitlines()
+    mapping = {}
+    for line in lines:
+        if '|' in line:
+            parts = line.split('|', 1)
+            name = parts[0].strip()
+            cat = parts[1].strip().lower()
+            mapping[name] = cat
+
+    # Создаём итоговый список
+    for name, price in items_with_price:
+        category = mapping.get(name, None)
+        result.append((category, name, price))
+
+    return result
+
+
 def parse_expense_v(raw_input: str) -> tuple:
     """
     Извлекает структурированные данные из голосового ввода
