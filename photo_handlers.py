@@ -5,7 +5,7 @@ from io import BytesIO
 from aiogram.types import Message
 from pyzbar.pyzbar import decode
 from PIL import Image
-from parse_expense_ph import parse_expense_ph  # импорт функции распределения категорий
+from parse_expense import parse_expense_ph  # импорт функции распределения категорий
 
 # FNS_TOKEN подгружается из переменных окружения (из main.py через load_dotenv)
 FNS_TOKEN = os.getenv('FNS_TOKEN')
