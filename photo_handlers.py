@@ -5,7 +5,7 @@ from io import BytesIO
 from aiogram.types import Message
 from pyzbar.pyzbar import decode
 from PIL import Image
-from parse_expense import parse_expense_ph  # импорт функции распределения категорий
+from parse_expense_ph import parse_expense_ph  # импорт функции распределения категорий
 
 # FNS_TOKEN подгружается из переменных окружения (из main.py через load_dotenv)
 FNS_TOKEN = os.getenv('FNS_TOKEN')
@@ -13,16 +13,20 @@ FNS_TOKEN = os.getenv('FNS_TOKEN')
 async def handle_photo_message(message: Message):
     """
     Обработчик фотографий: декодирует QR-код из фото, проверяет чек на proverkacheka.com,
-    распределяет категории и выводит позиции товаров.
+    распределяет категории и выводит позиции тßоваров.
     """
-    await message.answer("📷 Получил фото, распознаю QR-код …")
+    await message.answer("📷 Получил фото, распознаю QR-код…")
 
-    # Скачиваем в память
+    # Скачиваем в память через Bot API
+    photo = message.photo[-1]
+    # Получаем путь к файлу
+    file = await message.bot.get_file(photo.file_id)
     buffer = BytesIO()
-    await message.photo[-1].download(destination=buffer)
+    # Загружаем содержимое в BytesIO
+    await message.bot.download_file(file.file_path, buffer)
     buffer.seek(0)
 
-    # Открываем изображение
+    # Открываем изображение из BytesIO
     try:
         img = Image.open(buffer)
     except Exception as e:
