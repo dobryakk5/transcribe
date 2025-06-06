@@ -1,6 +1,7 @@
 # handlers_common.py
 from aiogram.types import Message
-from db_handler import update_last_field, get_today_purchases
+from db_handler import update_last_field, get_today_purchases, get_user_purchases
+import pandas as pd
 
 
 async def show_parser_result(category: str, subcategory: str, price: str, message: Message):
@@ -41,16 +42,40 @@ async def show_today_purchases(user_id: int, message: Message):
     await message.answer("\n".join(lines))
 
 
+async def export_purchases_to_excel(user_id: int, filename: str):
+    # Получаем данные
+    rows = await get_user_purchases(user_id)
+    
+    # Преобразуем данные в список словарей
+    data = [{
+        'Категория': row['category'],
+        'Подкатегория': row['subcategory'],
+        'Цена': row['price'],
+        'Время': row['ts']
+    } for row in rows]
+    
+    # Создаем DataFrame
+    df = pd.DataFrame(data)
+    
+    # Сохраняем в Excel
+    df.to_excel(filename, index=False)
+    print(f"Данные успешно сохранены в файл {filename}")
+
 async def process_user_input(
     raw_text: str, 
     message: Message,
     handle_new_expense_func
 ):
-    """Общий обработчик ввода с гибкой передачей функции обработки новой записи"""
     lower = raw_text.lower().strip()
 
     if lower == "список":
         await show_today_purchases(message.from_user.id, message)
+        return
+
+    if lower == "таблица":
+        filename = f"purchases_{message.from_user.id}.xlsx"
+        await export_purchases_to_excel(message.from_user.id, filename)
+        await message.answer_document(InputFile(filename))
         return
 
     correction_commands = {
@@ -58,7 +83,7 @@ async def process_user_input(
         "подкатегория": "subcategory",
         "цена": "price"
     }
-    
+
     for prefix, field in correction_commands.items():
         if lower.startswith(prefix):
             parts = raw_text.split(maxsplit=1)

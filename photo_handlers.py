@@ -61,7 +61,7 @@ async def handle_photo_message(message: Message):
         (it.get('name', '').strip(), it.get('sum', 0))
         for it in raw_items
     ]
-
+    await message.answer("🤖 ИИ проставляет категории …")
     # Получаем категории
     categorized = parse_expense_ph(items_with_price)
 
