@@ -1,9 +1,8 @@
-# handlers_common.py
 from aiogram.types import Message
 from aiogram.types.input_file import BufferedInputFile
 from db_handler import update_last_field, get_today_purchases, get_user_purchases
 import pandas as pd
-
+import textwrap
 
 async def show_parser_result(category: str, subcategory: str, price: str, message: Message):
     """Показывает результат работы парсера"""
@@ -14,7 +13,6 @@ async def show_parser_result(category: str, subcategory: str, price: str, messag
         f"• Цена: <b>{price}</b>",
         parse_mode="HTML"
     )
-
 
 async def handle_correction(field: str, new_val: str, message: Message):
     user_id = message.from_user.id
@@ -36,7 +34,6 @@ async def handle_correction(field: str, new_val: str, message: Message):
     except Exception as e:
         await message.answer(f"❌ Не удалось обновить: {e}")
 
-
 async def show_today_purchases(user_id: int, message: Message):
     rows = await get_today_purchases(user_id)
     if not rows:
@@ -48,19 +45,17 @@ async def show_today_purchases(user_id: int, message: Message):
     ]
     await message.answer("\n".join(lines))
 
-
 async def export_purchases_to_excel(user_id: int, filename: str):
     rows = await get_user_purchases(user_id)
 
     data = []
     for row in rows:
         price_str = f"{int(row['price']):,}".replace(",", ".")
-        time_str = row['ts'].astimezone(tz=None).replace(tzinfo=None).strftime("%d.%m.%Y")
         data.append({
             'Категория': row['category'],
             'Подкатегория': row['subcategory'],
             'Цена': price_str,
-            'Время': time_str
+            'Дата': row['ts'].astimezone(tz=None).replace(tzinfo=None).strftime("%d.%m.%Y %H:%M")
         })
 
     df = pd.DataFrame(data)
@@ -79,7 +74,7 @@ async def export_purchases_to_excel(user_id: int, filename: str):
 
     header = [cell.value for cell in ws[1]]
     price_col = header.index('Цена') + 1
-    time_col = header.index('Время') + 1
+    time_col = header.index('Дата') + 1
 
     for row in ws.iter_rows(min_row=2, min_col=price_col, max_col=price_col):
         row[0].alignment = Alignment(horizontal='right')
@@ -96,13 +91,29 @@ async def process_user_input(
 ):
     lower = raw_text.lower().strip()
 
+    # Кнопка «Инструкция»
+    if lower == "инструкция":
+        await message.answer(
+        textwrap.dedent("""\
+            💸 Добавить новую оплату: напиши «категория подкатегория цена».
+            🧾 Загрузить позиции с чека: отправь фото QR-кода с чека
+            🎙️ Загрузить простую транзакцию голосом: запиши голосовое.
+            🛠️ Исправить поле в последней записи:
+              – «Категория НовоеЗначение»
+              – «Подкатегория НовоеЗначение»
+              – «Цена НовоеЗначение»
+            📋 Показать список сегодняшних оплат: напиши «список» или нажми кнопку
+            📈 Выгрузить все оплаты в Excel: напиши «таблица» или нажми кнопку
+        """)
+        )
+        return
+
     if lower == "список":
         await show_today_purchases(message.from_user.id, message)
         return
 
     if lower == "таблица":
         import os
-        from io import BytesIO
         filename = "Fin_a_bot.xlsx"
         await export_purchases_to_excel(message.from_user.id, filename)
         with open(filename, 'rb') as f:
