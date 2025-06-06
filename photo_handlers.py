@@ -37,7 +37,7 @@ async def handle_photo_message(message: Message):
         return await message.answer("❌ QR-код не найден на фото.")
 
     qr_raw = decoded[0].data.decode('utf-8')
-    await message.answer(f"🔍 RAW QR: <code>{qr_raw}</code>", parse_mode="HTML")
+    # await message.answer(f"🔍 RAW QR: <code>{qr_raw}</code>", parse_mode="HTML")
 
     # Проверка чека на proverkacheka
     url = 'https://proverkacheka.com/api/v1/check/get'
