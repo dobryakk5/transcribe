@@ -95,13 +95,11 @@ def parse_expense_ph(items_with_price):
     Возвращает:
         list of tuples: [(category, name, price), ...]
     """
-    # Формируем список названий для передачи в LLM
     names = [name for name, price in items_with_price]
 
-    # Собираем промпт
     prompt = """
 У тебя есть список покупок с названиями товаров. Для каждого названия нужно определить категорию товара.
-Категория должна быть одним словом в родительном падеже (например: еда, быт, развлечения, ремонт и так далее).
+Категория должна быть одним словом (например: еда, быт, развлечения, ремонт и так далее).
 Если категория товара не определена, то проставь категорию от следующего или предыдущего товара.
 Возвращай список товаров в формате:
 название1|категория1
@@ -121,31 +119,41 @@ def parse_expense_ph(items_with_price):
             api_key=OPENROUTER_API_KEY,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens= len(names) * 20
+            max_tokens=len(names) * 20
         )
         ai_output = response['choices'][0]['message']['content'].strip()
     except Exception as e:
         print(f"Ошибка при получении категорий товаров: {e}")
-        # Вернуть исходный список с пустыми категориями
         return [(None, name, price) for name, price in items_with_price]
 
     # Разбираем вывод
-    result = []
-    lines = ai_output.splitlines()
     mapping = {}
-    for line in lines:
+    for line in ai_output.splitlines():
         if '|' in line:
-            parts = line.split('|', 1)
-            name = parts[0].strip()
-            cat = parts[1].strip().lower()
-            mapping[name] = cat
+            name, cat = line.split('|', 1)
+            mapping[name.strip()] = cat.strip().lower() or None
 
-    # Создаём итоговый список
-    for name, price in items_with_price:
-        category = mapping.get(name, None)
-        result.append((category, name, price))
+    # Создаём исходный список с возможными None
+    result = [(mapping.get(name, None), name, price) for name, price in items_with_price]
+
+    # Проходим и заполняем None от соседей
+    for i in range(len(result)):
+        category, name, price = result[i]
+        if not category or category in {"-", "неизвестно", "none"}:
+            # Ищем вперёд
+            for j in range(i + 1, len(result)):
+                if result[j][0]:
+                    result[i] = (result[j][0], name, price)
+                    break
+            else:
+                # Ищем назад, если вперёд не нашли
+                for j in range(i - 1, -1, -1):
+                    if result[j][0]:
+                        result[i] = (result[j][0], name, price)
+                        break
 
     return result
+
 
 
 def parse_expense_v(raw_input: str) -> tuple:
