@@ -76,6 +76,78 @@ async def save_expense(
             VALUES ($1, $2, $3, $4, $5);
         """, user_id, category, subcategory, price, ts)
 
+async def save_expenses_ph(
+    user_id: int,
+    chat_id: int,
+    username: str,
+    items: list[tuple[str, str, float]]
+) -> None:
+    """
+    Сохраняет в БД список позиций чека с их категориями.
+
+    Параметры:
+        user_id (int): Telegram user_id
+        chat_id (int): Telegram chat_id
+        username (str): Telegram username
+        items (List[Tuple[category, name, price]]):
+            Каждая запись — кортеж (категория, название_товара, цена).
+    """
+    pool = await _get_pool()
+    ts = datetime.now(pytz.timezone("Europe/Moscow")).replace(tzinfo=None, microsecond=0)
+
+    async with pool.acquire() as conn:
+        # 1) Пользователь
+        await conn.execute(
+            """
+            INSERT INTO users (user_id, chat_id, username)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id) DO UPDATE
+              SET chat_id = EXCLUDED.chat_id,
+                  username = EXCLUDED.username;
+            """,
+            user_id, chat_id, username
+        )
+
+        for category, name, price in items:
+            # 2) Категория
+            await conn.execute(
+                """
+                INSERT INTO categories (user_id, name)
+                VALUES ($1, $2)
+                ON CONFLICT (user_id, name) DO NOTHING;
+                """,
+                user_id, category
+            )
+            # 3) Получаем id категории
+            row = await conn.fetchrow(
+                """
+                SELECT id FROM categories
+                WHERE user_id = $1 AND name = $2;
+                """,
+                user_id, category
+            )
+            category_id = row['id']
+
+            # 4) Подкатегория (название товара)
+            await conn.execute(
+                """
+                INSERT INTO subcategories (user_id, category_id, name)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id, category_id, name) DO NOTHING;
+                """,
+                user_id, category_id, name
+            )
+
+            # 5) Покупка
+            await conn.execute(
+                """
+                INSERT INTO purchases (user_id, category, subcategory, price, ts)
+                VALUES ($1, $2, $3, $4, $5);
+                """,
+                user_id, category, name, price, ts
+            )
+
+
 async def update_last_field(
     user_id: int,
     field: str,
