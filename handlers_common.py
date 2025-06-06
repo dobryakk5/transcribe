@@ -1,5 +1,6 @@
 # handlers_common.py
 from aiogram.types import Message
+from aiogram.types.input_file import BufferedInputFile
 from db_handler import update_last_field, get_today_purchases, get_user_purchases
 import pandas as pd
 
@@ -17,7 +18,13 @@ async def show_parser_result(category: str, subcategory: str, price: str, messag
 
 async def handle_correction(field: str, new_val: str, message: Message):
     user_id = message.from_user.id
-    await message.answer(f"✏️ Обновляю поле <b>{field}</b> на «{new_val}»…", parse_mode="HTML")
+    field_names = {
+        'category': 'Категория',
+        'subcategory': 'Подкатегория',
+        'price': 'Цена'
+    }
+    field_rus = field_names.get(field, field)
+    await message.answer(f"✏️ Обновляю поле <b>{field_rus}</b> на «{new_val}»…", parse_mode="HTML")
     try:
         ok = await update_last_field(user_id, field, new_val)
         if ok:
@@ -43,23 +50,44 @@ async def show_today_purchases(user_id: int, message: Message):
 
 
 async def export_purchases_to_excel(user_id: int, filename: str):
-    # Получаем данные
     rows = await get_user_purchases(user_id)
-    
-    # Преобразуем данные в список словарей
-    data = [{
-        'Категория': row['category'],
-        'Подкатегория': row['subcategory'],
-        'Цена': row['price'],
-        'Время': row['ts']
-    } for row in rows]
-    
-    # Создаем DataFrame
+
+    data = []
+    for row in rows:
+        price_str = f"{int(row['price']):,}".replace(",", ".")
+        time_str = row['ts'].astimezone(tz=None).replace(tzinfo=None).strftime("%d.%m.%Y")
+        data.append({
+            'Категория': row['category'],
+            'Подкатегория': row['subcategory'],
+            'Цена': price_str,
+            'Время': time_str
+        })
+
     df = pd.DataFrame(data)
-    
-    # Сохраняем в Excel
     df.to_excel(filename, index=False)
-    print(f"Данные успешно сохранены в файл {filename}")
+
+    # Форматирование Excel
+    from openpyxl import load_workbook
+    from openpyxl.styles import Alignment
+
+    wb = load_workbook(filename)
+    ws = wb.active
+
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) for c in col if c.value), default=0)
+        ws.column_dimensions[col[0].column_letter].width = max_len + 2
+
+    header = [cell.value for cell in ws[1]]
+    price_col = header.index('Цена') + 1
+    time_col = header.index('Время') + 1
+
+    for row in ws.iter_rows(min_row=2, min_col=price_col, max_col=price_col):
+        row[0].alignment = Alignment(horizontal='right')
+
+    for row in ws.iter_rows(min_row=2, min_col=time_col, max_col=time_col):
+        row[0].alignment = Alignment(horizontal='right')
+
+    wb.save(filename)
 
 async def process_user_input(
     raw_text: str, 
@@ -73,9 +101,14 @@ async def process_user_input(
         return
 
     if lower == "таблица":
-        filename = f"purchases_{message.from_user.id}.xlsx"
+        import os
+        from io import BytesIO
+        filename = "Fin_a_bot.xlsx"
         await export_purchases_to_excel(message.from_user.id, filename)
-        await message.answer_document(InputFile(filename))
+        with open(filename, 'rb') as f:
+            file_data = f.read()
+        await message.answer_document(BufferedInputFile(file_data, filename))
+        os.remove(filename)
         return
 
     correction_commands = {
