@@ -1,11 +1,13 @@
-from datetime import datetime
-import pytz
+import plotly.express as px
+import plotly.io as pio
+from telegram import Bot
 
-# moscow_tz = pytz.timezone("Europe/Moscow")
-#now_with_tz = datetime.now(pytz.timezone("Europe/Moscow"))  # С временной зоной
-#naive_time = now_with_tz.replace(tzinfo=None, microsecond=0)
+# Создание графика
+fig = px.line(x=[1, 2, 3], y=[4, 1, 2], title="Пример графика")
 
+# Сохранение графика в файл
+pio.write_image(fig, 'plot.png')
 
-naive_time = datetime.now(pytz.timezone("Europe/Moscow")).replace(tzinfo=None, microsecond=0)
-
-print(naive_time)  # Пример: 2024-06-20 15:30:00 (без временной зоны)
+# Отправка изображения через Telegram-бота
+bot = Bot(token='API_TOKEN')
+bot.send_photo(chat_id='CHAT_ID', photo=open('plot.png', 'rb'))

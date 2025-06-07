@@ -1,8 +1,14 @@
+# handlers_common.py
 from aiogram.types import Message
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.types.input_file import BufferedInputFile
 from db_handler import update_last_field, get_today_purchases, get_user_purchases
+from start_handlers import on_start
 import pandas as pd
 import textwrap
+import matplotlib.pyplot as plt
+from io import BytesIO
+from datetime import datetime
 
 async def show_parser_result(category: str, subcategory: str, price: str, message: Message):
     """Показывает результат работы парсера"""
@@ -40,10 +46,99 @@ async def show_today_purchases(user_id: int, message: Message):
         return await message.answer("Сегодня ещё нет записей.")
     
     lines = [
-        f"{r['ts'].strftime('%H:%M:%S')} — {r['category']} / {r['subcategory']} = {r['price']}"
+        f"{r['category']} {r['subcategory']} {int(r['price']):,}".replace(',', '.')
         for r in rows
     ]
     await message.answer("\n".join(lines))
+
+
+# Pie chart display function
+async def show_pie_chart(user_id: int, message: Message):
+    rows = await get_user_purchases(user_id)
+    if not rows:
+        await message.answer("Нет данных для построения графика.")
+        return
+
+    category_totals = {}
+    for row in rows:
+        category = row["category"]
+        price = float(row["price"])
+        category_totals[category] = category_totals.get(category, 0) + price
+
+    labels = list(category_totals.keys())
+    sizes = list(category_totals.values())
+
+    fig, ax = plt.subplots()
+    ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+    ax.axis("equal")
+
+    buffer = BytesIO()
+    plt.savefig(buffer, format="png")
+    buffer.seek(0)
+    plt.close(fig)
+
+    await message.answer_photo(photo=BufferedInputFile(buffer.read(), filename="chart.png"))
+
+
+# Bar chart by day function
+async def show_bar_chart_by_day(user_id: int, message: Message):
+    rows = await get_user_purchases(user_id)
+    if not rows:
+        await message.answer("Нет данных для построения графика.")
+        return
+
+    df = pd.DataFrame([dict(r) for r in rows])
+    df["ts"] = pd.to_datetime(df["ts"])
+    df["date"] = df["ts"].dt.date
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+
+    grouped = df.groupby(["date", "category"])["price"].sum().unstack(fill_value=0)
+    cumulative = grouped.cumsum()
+
+    ax = cumulative.plot(kind="bar", stacked=True, figsize=(10, 6))
+    ax.set_ylabel("Сумма")
+    ax.set_xlabel("Дата")
+    ax.set_xticklabels([d.strftime("%d.%m") for d in cumulative.index], rotation=0)
+    ax.set_title("Кумулятивные оплаты по категориям")
+    ax.legend(title="Категории", bbox_to_anchor=(1.05, 1), loc="upper left")
+
+    fig = ax.get_figure()
+    fig.tight_layout()
+    buffer = BytesIO()
+    fig.savefig(buffer, format="png")
+    buffer.seek(0)
+    plt.close(fig)
+
+    await message.answer_photo(photo=BufferedInputFile(buffer.read(), filename="bar_chart.png"))
+
+async def show_daily_bar_chart(user_id: int, message: Message):
+    rows = await get_user_purchases(user_id)
+    if not rows:
+        await message.answer("Нет данных для построения графика.")
+        return
+
+    df = pd.DataFrame([dict(r) for r in rows])
+    df["ts"] = pd.to_datetime(df["ts"])
+    df["date"] = df["ts"].dt.date
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+
+    grouped = df.groupby(["date", "category"])["price"].sum().unstack(fill_value=0)
+
+    ax = grouped.plot(kind="bar", stacked=True, figsize=(10, 6))
+    ax.set_ylabel("Сумма")
+    ax.set_xlabel("Дата")
+    ax.set_xticklabels([d.strftime("%d.%m") for d in grouped.index], rotation=0)
+    ax.set_title("Ежедневные траты по категориям")
+    ax.legend(title="Категории", bbox_to_anchor=(1.05, 1), loc="upper left")
+
+    fig = ax.get_figure()
+    fig.tight_layout()
+    buffer = BytesIO()
+    fig.savefig(buffer, format="png")
+    buffer.seek(0)
+    plt.close(fig)
+
+    await message.answer_photo(photo=BufferedInputFile(buffer.read(), filename="daily_bar_chart.png"))
 
 async def export_purchases_to_excel(user_id: int, filename: str):
     rows = await get_user_purchases(user_id)
@@ -92,7 +187,7 @@ async def process_user_input(
     lower = raw_text.lower().strip()
 
     # Кнопка «Инструкция»
-    if lower == "инструкция":
+    if lower == "📘 инструкция":
         await message.answer(
         textwrap.dedent("""\
             💸 Добавить новую оплату: напиши «категория подкатегория цена».
@@ -103,16 +198,47 @@ async def process_user_input(
               – «Подкатегория НовоеЗначение»
               – «Цена НовоеЗначение»
             📋 Показать список сегодняшних оплат: напиши «список» или нажми кнопку
-            📈 Выгрузить все оплаты в Excel: напиши «таблица» или нажми кнопку
+            🔢 Выгрузить все оплаты в Excel: напиши «таблица» или нажми кнопку
         """)
         )
         return
 
-    if lower == "список":
+    if lower == "📈 графики":
+        await message.answer(
+            "📊 Что показать?",
+            reply_markup=ReplyKeyboardMarkup(
+                keyboard=[
+                    [KeyboardButton(text="🔘 Круг по категориям")],
+                    [KeyboardButton(text="📊 Накопительно категория/день")],
+                    [KeyboardButton(text="📊 Ежедневно категория/день")],
+                    [KeyboardButton(text="🏠 Главное меню")]
+                ],
+                resize_keyboard=True
+            )
+        )
+        return
+
+    if lower == "🔘 круг по категориям":
+        await show_pie_chart(message.from_user.id, message)
+        return
+
+    if lower == "📊 накопительно категория/день":
+        await show_bar_chart_by_day(message.from_user.id, message)
+        return
+
+    if lower == "📊 ежедневно категория/день":
+        await show_daily_bar_chart(message.from_user.id, message)
+        return
+
+    if lower == "🏠 главное меню":
+        await on_start(message)
+        return
+
+    if lower == "📄 список":
         await show_today_purchases(message.from_user.id, message)
         return
 
-    if lower == "таблица":
+    if lower == "🔢 таблица":
         import os
         filename = "Fin_a_bot.xlsx"
         await export_purchases_to_excel(message.from_user.id, filename)
