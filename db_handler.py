@@ -1,3 +1,13 @@
+"""
+SQL-команда для создания таблицы income:
+CREATE TABLE IF NOT EXISTS income (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    source TEXT NOT NULL,
+    amount NUMERIC(10, 2) NOT NULL,
+    ts TIMESTAMP NOT NULL DEFAULT NOW()
+);
+"""
 # db_handler.py
 import pytz
 import os
@@ -272,3 +282,14 @@ async def get_user_purchases(user_id: int) -> list[asyncpg.Record]:
             ORDER BY ts;
         """, user_id)
     return rows
+async def save_income(user_id: int, source: str, amount: float) -> None:
+    """
+    Сохраняет источник дохода и сумму для данного user_id.
+    """
+    pool = await _get_pool()
+    ts = datetime.now(pytz.timezone("Europe/Moscow")).replace(tzinfo=None, microsecond=0)
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO income (user_id, source, amount, ts)
+            VALUES ($1, $2, $3, $4);
+        """, user_id, source, amount, ts)

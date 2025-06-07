@@ -20,3 +20,11 @@ CREATE TABLE IF NOT EXISTS subcategories (
     name TEXT NOT NULL,
     UNIQUE(user_id, name)
 );
+
+CREATE TABLE IF NOT EXISTS income (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    source TEXT NOT NULL,
+    amount NUMERIC(10, 2) NOT NULL,
+    ts TIMESTAMP NOT NULL DEFAULT NOW()
+);
