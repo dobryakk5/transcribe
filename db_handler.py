@@ -1,13 +1,3 @@
-"""
-SQL-команда для создания таблицы income:
-CREATE TABLE IF NOT EXISTS income (
-    id SERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL,
-    source TEXT NOT NULL,
-    amount NUMERIC(10, 2) NOT NULL,
-    ts TIMESTAMP NOT NULL DEFAULT NOW()
-);
-"""
 # db_handler.py
 import pytz
 import os
@@ -281,6 +271,25 @@ async def get_user_purchases(user_id: int) -> list[asyncpg.Record]:
             WHERE user_id = $1
             ORDER BY ts;
         """, user_id)
+    return rows
+
+
+# Получить доходы пользователя за последние N дней
+from datetime import timedelta
+
+async def get_user_incomes_days(user_id: int, days: int) -> list[asyncpg.Record]:
+    """
+    Возвращает записи из income за последние `days` дней для данного user_id.
+    """
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        since = datetime.now() - timedelta(days=days)
+        rows = await conn.fetch("""
+            SELECT source, amount, ts
+            FROM income
+            WHERE user_id = $1 AND ts >= $2
+            ORDER BY ts;
+        """, user_id, since)
     return rows
 async def save_income(user_id: int, source: str, amount: float) -> None:
     """

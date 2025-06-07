@@ -5,9 +5,9 @@ async def on_start(message: Message):
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📘 Инструкция")],
-            [KeyboardButton(text="📄 Список")],
-            [KeyboardButton(text="🔢 Таблица")],
+            [KeyboardButton(text="📄 Список"), KeyboardButton(text="🔢 Таблица")],
             [KeyboardButton(text="📈 Графики")],
+            [KeyboardButton(text="💰 Доходы")],
         ],
         resize_keyboard=True
     )

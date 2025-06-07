@@ -186,6 +186,8 @@ async def export_purchases_to_excel(user_id: int, filename: str):
 
     wb.save(filename)
 
+
+
 async def process_user_input(
     raw_text: str, 
     message: Message,
@@ -225,6 +227,21 @@ async def process_user_input(
                 resize_keyboard=True
             )
         )
+        return
+
+    if lower == "💰 доходы":
+        from db_handler import get_user_incomes_days
+        rows = await get_user_incomes_days(message.from_user.id, 30)
+        if not rows:
+            return await message.answer("Доходов за последние 30 дней нет.")
+        lines = [
+            f"{r['source'][:25]:<25} {int(r['amount']):>10,}".replace(",", ".")
+            for r in rows
+        ]
+        total = sum(int(r['amount']) for r in rows)
+        lines.append("")
+        lines.append(f"{'Итого за 30 дней:':<25} {total:>10,}".replace(",", "."))
+        await message.answer(f"<pre>{chr(10).join(lines)}</pre>", parse_mode="HTML")
         return
 
     if lower == "🔘 круг по категориям":
