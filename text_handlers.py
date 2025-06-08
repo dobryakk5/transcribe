@@ -38,7 +38,7 @@ async def handle_new_income_t(raw: str, message: Message):
         source, amount_str = raw.rsplit(maxsplit=1)
         amount = float(amount_str)
     except Exception:
-        return await message.answer("❌ Неверный формат. Пример: доход личное 12000")
+        return await message.answer("❌ Неверный формат. Пример: доход личное 12500")
 
     await message.answer(f"💰 Источник: {source}, Сумма: {int(amount):,}".replace(",", "."))
 
