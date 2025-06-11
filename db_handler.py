@@ -2,8 +2,10 @@
 import pytz
 import os
 import asyncpg
+from asyncpg.exceptions import UniqueViolationError
 from datetime import datetime
 from dotenv import load_dotenv
+from typing import Optional, Dict, Any
 
 # Загружаем DATABASE_URL из .env
 load_dotenv()
@@ -147,6 +149,7 @@ async def save_expenses_ph(
                 user_id, category, name, price, ts
             )
 
+# старая процедура ниже (убрал с использования)
 async def update_last_field(
     user_id: int,
     field: str,
@@ -186,7 +189,7 @@ async def update_last_field(
                 """, value, user_id, old_cat)
             except asyncpg.exceptions.UniqueViolationError:
                 dups = await conn.fetch(
-                    "SELECT id FROM categories WHERE user_id=$1 AND name=$2 ORDER BY id;",
+                    "SELECT id FROM categories WHERE user_id=$1::BIGINT AND name=$2 ORDER BY id;",
                     user_id, value
                 )
                 for dup in dups[1:]:
@@ -202,7 +205,7 @@ async def update_last_field(
         elif field == 'subcategory':
             # находим category_id
             cat_row = await conn.fetchrow(
-                "SELECT id FROM categories WHERE user_id=$1 AND name=$2;",
+                "SELECT id FROM categories WHERE user_id=$1::BIGINT AND name=$2;",
                 user_id, old_cat
             )
             category_id = cat_row['id']
@@ -216,7 +219,7 @@ async def update_last_field(
                 """, value, user_id, category_id, old_subcat)
             except asyncpg.exceptions.UniqueViolationError:
                 dups = await conn.fetch(
-                    "SELECT id FROM subcategories WHERE user_id=$1 AND category_id=$2 AND name=$3 ORDER BY id;",
+                    "SELECT id FROM subcategories WHERE user_id=$1::BIGINT AND category_id=$2 AND name=$3 ORDER BY id;",
                     user_id, category_id, value
                 )
                 for dup in dups[1:]:
@@ -242,21 +245,19 @@ async def update_last_field(
 
         return True
 
-async def get_today_purchases(user_id: int) -> list[asyncpg.Record]:
-    """
-    Возвращает список записей из purchases для данного user_id и текущей даты.
-    Каждая запись содержит поля category, subcategory, price, ts.
-    """
+async def get_today_purchases(user_id: int):
     pool = await _get_pool()
+    sql = """
+        SELECT category, subcategory, price, ts
+        FROM purchases
+        WHERE user_id = $1
+          AND (ts AT TIME ZONE 'Europe/Moscow')::date = CURRENT_DATE
+        ORDER BY ts;
+    """
     async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT category, subcategory, price, ts
-            FROM purchases
-            WHERE user_id = $1
-              AND DATE(ts) = CURRENT_DATE
-            ORDER BY ts;
-        """, user_id)
+        rows = await conn.fetch(sql, user_id)
     return rows
+
 
 async def get_user_purchases(user_id: int) -> list[asyncpg.Record]:
     """
@@ -270,6 +271,21 @@ async def get_user_purchases(user_id: int) -> list[asyncpg.Record]:
             FROM purchases
             WHERE user_id = $1
             ORDER BY ts;
+        """, user_id)
+    return rows
+
+async def get_user_categories(user_id: int) -> list[asyncpg.Record]:
+    """
+    Возвращает список категорий для заданного user_id.
+    Каждая запись содержит поля id и name.
+    """
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id, name
+            FROM categories
+            WHERE user_id = $1
+            ORDER BY id;
         """, user_id)
     return rows
 
@@ -291,6 +307,7 @@ async def get_user_incomes_days(user_id: int, days: int) -> list[asyncpg.Record]
             ORDER BY ts;
         """, user_id, since)
     return rows
+
 async def save_income(user_id: int, source: str, amount: float) -> None:
     """
     Сохраняет источник дохода и сумму для данного user_id.
@@ -302,3 +319,108 @@ async def save_income(user_id: int, source: str, amount: float) -> None:
             INSERT INTO income (user_id, source, amount, ts)
             VALUES ($1, $2, $3, $4);
         """, user_id, source, amount, ts)
+
+
+async def delete_last_purchase(user_id: int) -> bool:
+
+
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT delete_last_purchase($1);",
+            user_id
+        )
+
+async def get_last_purchase(user_id: str) -> Optional[Dict[str, Any]]:
+    """Возвращает последнюю запись о покупке пользователя"""
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # Конвертируем user_id в int только для передачи в запрос
+        try:
+            user_id_int = int(user_id)
+        except ValueError:
+            logger.error(f"Invalid user_id: {user_id}")
+            return None
+            
+        row = await conn.fetchrow("""
+            SELECT category, subcategory, price
+            FROM purchases
+            WHERE user_id = $1
+            ORDER BY ts DESC
+            LIMIT 1;
+        """, user_id_int)
+        return dict(row) if row else None
+
+async def update_last_purchase_field(
+    user_id: str,
+    field: str,
+    value: str
+) -> bool:
+    """Обновляет поле в последней записи покупки (для цены)"""
+    pool = await _get_pool()
+    ts = datetime.now()
+
+    async with pool.acquire() as conn:
+        try:
+            user_id_int = int(user_id)
+        except ValueError:
+            logger.error(f"Invalid user_id: {user_id}")
+            return False
+
+        # Получаем ID последней покупки
+        purchase_id = await conn.fetchval("""
+            SELECT id
+            FROM purchases
+            WHERE user_id = $1
+            ORDER BY ts DESC
+            LIMIT 1;
+        """, user_id_int)
+        
+        if not purchase_id:
+            return False
+
+        if field == 'price':
+            try:
+                price_val = float(value)
+            except ValueError:
+                raise ValueError("Цена должна быть числом")
+                
+            await conn.execute("""
+                UPDATE purchases
+                SET price = $1, ts = $2
+                WHERE id = $3;
+            """, price_val, ts, purchase_id)
+            return True
+        
+        raise ValueError(f"Неподдерживаемое поле: {field}")
+
+async def update_dictionary(
+    user_id: str,
+    dict_type: str,
+    old_name: str,
+    new_name: str,
+    category_name: Optional[str] = None
+) -> bool:
+    """Обновляет справочник и связанные покупки"""
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        try:
+            user_id_int = int(user_id)
+        except ValueError:
+            logger.error(f"Invalid user_id: {user_id}")
+            return False
+            
+        if dict_type == 'category':
+            return await conn.fetchval(
+                "SELECT update_category($1::bigint, $2::text, $3::text);",
+                user_id_int, old_name, new_name
+            )
+        elif dict_type == 'subcategory':
+            if not category_name:
+                raise ValueError("Для подкатегории требуется указать категорию")
+            return await conn.fetchval(
+                "SELECT update_subcategory($1::bigint, $2::text, $3::text, $4::text);",
+                user_id_int, category_name, old_name, new_name
+            )
+        else:
+            raise ValueError(f"Неподдерживаемый тип справочника: {dict_type}")

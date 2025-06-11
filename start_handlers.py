@@ -1,4 +1,9 @@
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (
+    Message, 
+    ReplyKeyboardMarkup, 
+    KeyboardButton,
+    WebAppInfo  # Импортируем для работы с Mini Apps
+)
 import textwrap
 
 async def on_start(message: Message):
@@ -8,9 +13,11 @@ async def on_start(message: Message):
             [KeyboardButton(text="📄 Список"), KeyboardButton(text="🔢 Таблица")],
             [KeyboardButton(text="📈 Графики")],
             [KeyboardButton(text="💰 Доходы")],
+            [KeyboardButton(text="🚪 Кабинет", web_app=WebAppInfo(url="https://ai5.space"))]
         ],
         resize_keyboard=True
     )
+    
     await message.answer(
         textwrap.dedent("""\
             Привет! Я финансовый помощник 🤖
@@ -27,6 +34,7 @@ async def on_start(message: Message):
             • Список — сегодняшние оплаты
             • Таблица — выгрузка всех оплат в Excel
             • Графики — визуализация данных
+            • Кабинет — управление настройками
         """),
         reply_markup=keyboard
     )

@@ -1,3 +1,4 @@
+#main.py
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 import asyncio

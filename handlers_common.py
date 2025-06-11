@@ -2,13 +2,19 @@
 from aiogram.types import Message
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.types.input_file import BufferedInputFile
-from db_handler import update_last_field, get_today_purchases, get_user_purchases
+from db_handler import update_dictionary, get_today_purchases, get_user_purchases, update_last_purchase_field, get_last_purchase, delete_last_purchase
 from start_handlers import on_start
 import pandas as pd
 import textwrap
 import matplotlib.pyplot as plt
 from io import BytesIO
 from datetime import datetime
+import asyncpg
+from asyncpg.exceptions import UniqueViolationError
+import logging
+
+# Инициализация логгера
+logger = logging.getLogger(__name__)
 
 async def show_parser_result(category: str, subcategory: str, price: str, message: Message):
     """Показывает результат работы парсера"""
@@ -20,28 +26,66 @@ async def show_parser_result(category: str, subcategory: str, price: str, messag
         parse_mode="HTML"
     )
 
+
 async def handle_correction(field: str, new_val: str, message: Message):
-    user_id = message.from_user.id
+    # Telegram ID как строка для избежания проблем с большими числами
+    user_id_str = str(message.from_user.id)
+    
     field_names = {
         'category': 'Категория',
         'subcategory': 'Подкатегория',
         'price': 'Цена'
     }
     field_rus = field_names.get(field, field)
+    
     await message.answer(f"✏️ Обновляю поле <b>{field_rus}</b> на «{new_val}»…", parse_mode="HTML")
+    
     try:
-        ok = await update_last_field(user_id, field, new_val)
+        if field in ('category', 'subcategory'):
+            # Для категорий и подкатегорий используем глобальное обновление справочника
+            last_purchase = await get_last_purchase(user_id_str)
+            if not last_purchase:
+                await message.answer("⚠️ Нет предыдущей записи для обновления.")
+                return
+                
+            if field == 'category':
+                ok = await update_dictionary(
+                    user_id_str,
+                    'category',
+                    old_name=last_purchase['category'],
+                    new_name=new_val
+                )
+            else:
+                ok = await update_dictionary(
+                    user_id_str,
+                    'subcategory',
+                    category_name=last_purchase['category'],
+                    old_name=last_purchase['subcategory'],
+                    new_name=new_val
+                )
+        else:
+            # Для цены используем точечное обновление
+            ok = await update_last_purchase_field(user_id_str, field, new_val)
+        
         if ok:
             await message.answer("✅ Поле обновлено.")
         else:
             await message.answer("⚠️ Нет предыдущей записи для обновления.")
+            
     except ValueError as ve:
-        await message.answer(f"❌ {ve}")
+        await message.answer(f"❌ Ошибка значения: {ve}")
+    except UniqueViolationError:
+        await message.answer("❌ Такое значение уже существует в справочнике")
+    except DataError as de:
+        logger.error(f"DataError: {de}")
+        await message.answer("❌ Ошибка обработки данных. Пожалуйста, попробуйте позже.")
     except Exception as e:
-        await message.answer(f"❌ Не удалось обновить: {e}")
+        logger.exception("Ошибка при обновлении")
+        await message.answer(f"❌ Критическая ошибка: {str(e)}")
 
 async def show_today_purchases(user_id: int, message: Message):
     rows = await get_today_purchases(user_id)
+
     if not rows:
         return await message.answer("Сегодня ещё нет записей.")
 
@@ -68,16 +112,31 @@ async def show_pie_chart(user_id: int, message: Message):
 
     category_totals = {}
     for row in rows:
-        category = row["category"]
+        cat = row["category"]
         price = float(row["price"])
-        category_totals[category] = category_totals.get(category, 0) + price
+        category_totals[cat] = category_totals.get(cat, 0) + price
 
     labels = list(category_totals.keys())
     sizes = list(category_totals.values())
 
+    def autopct_format(values):
+        def my_format(pct):
+            total = sum(values)
+            v = int(round(pct * total / 100.0))
+            return f"{pct:.1f}%\n({v} ₽)"
+        return my_format
+
     fig, ax = plt.subplots()
-    ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+    wedges, texts, autotexts = ax.pie(
+        sizes,
+        labels=labels,
+        autopct=autopct_format(sizes),
+        startangle=90
+    )
     ax.axis("equal")
+
+    # Настройка размера и шрифта текста (опционально)
+    plt.setp(autotexts, size=10, weight="light")
 
     buffer = BytesIO()
     plt.savefig(buffer, format="png")
@@ -85,6 +144,7 @@ async def show_pie_chart(user_id: int, message: Message):
     plt.close(fig)
 
     await message.answer_photo(photo=BufferedInputFile(buffer.read(), filename="chart.png"))
+
 
 
 # Bar chart by day function
@@ -147,7 +207,7 @@ async def show_daily_bar_chart(user_id: int, message: Message):
 
     await message.answer_photo(photo=BufferedInputFile(buffer.read(), filename="daily_bar_chart.png"))
 
-async def export_purchases_to_excel(user_id: int, filename: str):
+
     rows = await get_user_purchases(user_id)
 
     data = []
@@ -186,8 +246,6 @@ async def export_purchases_to_excel(user_id: int, filename: str):
 
     wb.save(filename)
 
-
-
 async def process_user_input(
     raw_text: str, 
     message: Message,
@@ -202,7 +260,7 @@ async def process_user_input(
             💸 Добавить новую оплату: напиши «категория подкатегория цена».
             🧾 Загрузить позиции с чека: отправь фото QR-кода с чека
             🎙️ Загрузить простую транзакцию голосом: запиши голосовое.
-            🛠️ Исправить поле в последней записи:
+            🛠️ Исправить поле в последней записи: введи "удали" или выбери новое значение
               – «Категория НовоеЗначение»
               – «Подкатегория НовоеЗначение»
               – «Цена НовоеЗначение»
@@ -265,6 +323,15 @@ async def process_user_input(
     if lower == "📄 список":
         await show_today_purchases(message.from_user.id, message)
         return
+    
+    if lower == "удали":
+        success = await delete_last_purchase(message.from_user.id)
+        if success:
+            await message.answer("✅ Последняя запись успешно удалена.")
+        else:
+            await message.answer("⚠️ Нет записей для удаления.")
+        return
+
 
     if lower == "🔢 таблица":
         import os
@@ -290,3 +357,56 @@ async def process_user_input(
             return await handle_correction(field, parts[1].strip(), message)
 
     await handle_new_expense_func(raw_text, message)
+
+async def export_purchases_to_excel(user_id: int, filename: str):
+    """
+    Экспортирует все покупки пользователя в Excel-файл.
+    Если записей нет, создаёт файл с заголовками.
+    """
+    # Получаем записи, гарантируем список
+    rows = await get_user_purchases(user_id) or []
+
+    # Подготавливаем данные для DataFrame
+    data = []
+    for row in rows:
+        price_str = f"{int(row['price']):,}".replace(",", ".")
+        data.append({
+            'Категория': row['category'],
+            'Подкатегория': row['subcategory'],
+            'Цена': price_str,
+            'Дата': row['ts'].astimezone(tz=None).replace(tzinfo=None).strftime("%d.%m.%Y %H:%M")
+        })
+
+    # Если нет данных, создаём пустой DataFrame с колонками
+    if not data:
+        df = pd.DataFrame(columns=['Категория', 'Подкатегория', 'Цена', 'Дата'])
+    else:
+        df = pd.DataFrame(data)
+
+    # Сохраняем в Excel
+    df.to_excel(filename, index=False)
+
+    # Форматирование Excel
+    from openpyxl import load_workbook
+    from openpyxl.styles import Alignment
+
+    wb = load_workbook(filename)
+    ws = wb.active
+
+    # Автоширина колонок
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) for c in col if c.value), default=0)
+        ws.column_dimensions[col[0].column_letter].width = max_len + 2
+
+    # Выравнивание цен и дат
+    header = [cell.value for cell in ws[1]]
+    if 'Цена' in header:
+        price_col = header.index('Цена') + 1
+        for cell in ws.iter_rows(min_row=2, min_col=price_col, max_col=price_col):
+            cell[0].alignment = Alignment(horizontal='right')
+    if 'Дата' in header:
+        time_col = header.index('Дата') + 1
+        for cell in ws.iter_rows(min_row=2, min_col=time_col, max_col=time_col):
+            cell[0].alignment = Alignment(horizontal='right')
+
+    wb.save(filename)
