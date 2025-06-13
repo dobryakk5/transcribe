@@ -13,6 +13,14 @@ import asyncpg
 from asyncpg.exceptions import UniqueViolationError
 import logging
 
+# шифровка и передача user_id
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from itsdangerous import URLSafeSerializer
+import os
+API_TOKEN = os.getenv("API_TOKEN")
+serializer = URLSafeSerializer(API_TOKEN, salt="uid-salt")
+
+
 # Инициализация логгера
 logger = logging.getLogger(__name__)
 
@@ -25,7 +33,6 @@ async def show_parser_result(category: str, subcategory: str, price: str, messag
         f"• Цена: <b>{price}</b>",
         parse_mode="HTML"
     )
-
 
 async def handle_correction(field: str, new_val: str, message: Message):
     # Telegram ID как строка для избежания проблем с большими числами
@@ -102,8 +109,60 @@ async def show_today_purchases(user_id: int, message: Message):
 
     await message.answer(f"<pre>{chr(10).join(lines)}</pre>", parse_mode="HTML")
 
+async def export_purchases_to_excel(user_id: int, filename: str):
+    """
+    Экспортирует все покупки пользователя в Excel-файл.
+    Если записей нет, создаёт файл с заголовками.
+    """
+    # Получаем записи, гарантируем список
+    rows = await get_user_purchases(user_id) or []
 
-# Pie chart display function
+    # Подготавливаем данные для DataFrame
+    data = []
+    for row in rows:
+        price_str = f"{int(row['price']):,}".replace(",", ".")
+        data.append({
+            'Категория': row['category'],
+            'Подкатегория': row['subcategory'],
+            'Цена': price_str,
+            'Дата': row['ts'].astimezone(tz=None).replace(tzinfo=None).strftime("%d.%m.%Y %H:%M")
+        })
+
+    # Если нет данных, создаём пустой DataFrame с колонками
+    if not data:
+        df = pd.DataFrame(columns=['Категория', 'Подкатегория', 'Цена', 'Дата'])
+    else:
+        df = pd.DataFrame(data)
+
+    # Сохраняем в Excel
+    df.to_excel(filename, index=False)
+
+    # Форматирование Excel
+    from openpyxl import load_workbook
+    from openpyxl.styles import Alignment
+
+    wb = load_workbook(filename)
+    ws = wb.active
+
+    # Автоширина колонок
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) for c in col if c.value), default=0)
+        ws.column_dimensions[col[0].column_letter].width = max_len + 2
+
+    # Выравнивание цен и дат
+    header = [cell.value for cell in ws[1]]
+    if 'Цена' in header:
+        price_col = header.index('Цена') + 1
+        for cell in ws.iter_rows(min_row=2, min_col=price_col, max_col=price_col):
+            cell[0].alignment = Alignment(horizontal='right')
+    if 'Дата' in header:
+        time_col = header.index('Дата') + 1
+        for cell in ws.iter_rows(min_row=2, min_col=time_col, max_col=time_col):
+            cell[0].alignment = Alignment(horizontal='right')
+
+    wb.save(filename)
+
+# Chart display function
 async def show_pie_chart(user_id: int, message: Message):
     rows = await get_user_purchases(user_id)
     if not rows:
@@ -145,9 +204,6 @@ async def show_pie_chart(user_id: int, message: Message):
 
     await message.answer_photo(photo=BufferedInputFile(buffer.read(), filename="chart.png"))
 
-
-
-# Bar chart by day function
 async def show_bar_chart_by_day(user_id: int, message: Message):
     rows = await get_user_purchases(user_id)
     if not rows:
@@ -246,6 +302,7 @@ async def show_daily_bar_chart(user_id: int, message: Message):
 
     wb.save(filename)
 
+
 async def process_user_input(
     raw_text: str, 
     message: Message,
@@ -319,6 +376,22 @@ async def process_user_input(
     if lower == "🏠 главное меню":
         await on_start(message)
         return
+    
+    if lower == "кабинет":
+        # 1. Получаем телеграм-ID
+        uid = message.from_user.id
+        # 2. Подписываем его
+        token = serializer.dumps(uid)
+        # 3. Формируем ссылку
+        url = f"https://ai5.space/?token={token}"
+        # 4. Кнопка с этой ссылкой
+        kb = InlineKeyboardMarkup(inline_keyboard=[])
+        
+        await message.answer(
+            "Вот ваша персональная ссылка на кабинет — никто больше не сможет попасть по ней, т.к. она подписана:\n", 
+            reply_markup=kb
+        )
+        return
 
     if lower == "📄 список":
         await show_today_purchases(message.from_user.id, message)
@@ -358,55 +431,3 @@ async def process_user_input(
 
     await handle_new_expense_func(raw_text, message)
 
-async def export_purchases_to_excel(user_id: int, filename: str):
-    """
-    Экспортирует все покупки пользователя в Excel-файл.
-    Если записей нет, создаёт файл с заголовками.
-    """
-    # Получаем записи, гарантируем список
-    rows = await get_user_purchases(user_id) or []
-
-    # Подготавливаем данные для DataFrame
-    data = []
-    for row in rows:
-        price_str = f"{int(row['price']):,}".replace(",", ".")
-        data.append({
-            'Категория': row['category'],
-            'Подкатегория': row['subcategory'],
-            'Цена': price_str,
-            'Дата': row['ts'].astimezone(tz=None).replace(tzinfo=None).strftime("%d.%m.%Y %H:%M")
-        })
-
-    # Если нет данных, создаём пустой DataFrame с колонками
-    if not data:
-        df = pd.DataFrame(columns=['Категория', 'Подкатегория', 'Цена', 'Дата'])
-    else:
-        df = pd.DataFrame(data)
-
-    # Сохраняем в Excel
-    df.to_excel(filename, index=False)
-
-    # Форматирование Excel
-    from openpyxl import load_workbook
-    from openpyxl.styles import Alignment
-
-    wb = load_workbook(filename)
-    ws = wb.active
-
-    # Автоширина колонок
-    for col in ws.columns:
-        max_len = max((len(str(c.value)) for c in col if c.value), default=0)
-        ws.column_dimensions[col[0].column_letter].width = max_len + 2
-
-    # Выравнивание цен и дат
-    header = [cell.value for cell in ws[1]]
-    if 'Цена' in header:
-        price_col = header.index('Цена') + 1
-        for cell in ws.iter_rows(min_row=2, min_col=price_col, max_col=price_col):
-            cell[0].alignment = Alignment(horizontal='right')
-    if 'Дата' in header:
-        time_col = header.index('Дата') + 1
-        for cell in ws.iter_rows(min_row=2, min_col=time_col, max_col=time_col):
-            cell[0].alignment = Alignment(horizontal='right')
-
-    wb.save(filename)

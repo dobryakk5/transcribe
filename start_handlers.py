@@ -1,26 +1,52 @@
-from aiogram.types import (
-    Message, 
-    ReplyKeyboardMarkup, 
-    KeyboardButton,
-    WebAppInfo  # Импортируем для работы с Mini Apps
-)
 import textwrap
+import os
+from aiogram.types import (
+    Message,
+    ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
+from itsdangerous import URLSafeSerializer
+
+# Загружаем секрет из окружения
+API_TOKEN = os.getenv("FNS_TOKEN")
+serializer = URLSafeSerializer(API_TOKEN, salt="uid-salt")
+
+from urllib.parse import quote
 
 async def on_start(message: Message):
-    keyboard = ReplyKeyboardMarkup(
+
+    # Подписываем Telegram user_id
+    uid = message.from_user.id
+    token = serializer.dumps(uid)
+    # Ссылка на внешний сайт с токеном
+    url = f"https://ai5.space/?auth={quote(token)}"
+
+    # 1) Reply-клавиатура для команд
+    reply_kb = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📘 Инструкция")],
             [KeyboardButton(text="📄 Список"), KeyboardButton(text="🔢 Таблица")],
             [KeyboardButton(text="📈 Графики")],
-            [KeyboardButton(text="💰 Доходы")],
-            [KeyboardButton(text="🚪 Кабинет", web_app=WebAppInfo(url="https://ai5.space"))]
+            [KeyboardButton(text="💰 Доходы")]
         ],
         resize_keyboard=True
     )
-    
+
+    # Отправляем основное меню
+    await message.answer("🚪 Привет!",
+        reply_markup=reply_kb
+    )
+
+    # 2) Inline-клавиатура для перехода в веб-кабинет
+    inline_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Переход в личный кабинет", url=url)]
+        ]
+    )
+
     await message.answer(
         textwrap.dedent("""\
-            Привет! Я финансовый помощник 🤖
+         Я финансовый аналитик 🤖
             
             Максимально просто сохраняю покупки в Вашу базу данных (БД).
             
@@ -34,7 +60,8 @@ async def on_start(message: Message):
             • Список — сегодняшние оплаты
             • Таблица — выгрузка всех оплат в Excel
             • Графики — визуализация данных
-            • Кабинет — управление настройками
+            • Кабинет — редактирование всего
         """),
-        reply_markup=keyboard
+        reply_markup=reply_kb
     )
+    await message.answer("🚪 Открыть кабинет в браузере",reply_markup=inline_kb)
