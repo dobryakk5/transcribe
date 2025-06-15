@@ -391,8 +391,9 @@ async def process_user_input(
         await message.answer(f"Создаю секретную ссылку")
         user_id = message.from_user.id
         token = str(uuid.uuid4())
-        r.setex(f"dash_token:{token}", 99300, user_id) # в Redis: dash_token:<token> → user_id (TTL=300 секунд)
-        dash_url = f"https://ai5.space/auth?token={token}"
+        r.setex(f"dash_token:{token}", 10300, user_id) # в Redis: dash_token:<token> → user_id (TTL=300 секунд)
+        dash_url = f"https://ai5.space/login?token={token}"
+        #dash_url = f"https://ai5.space/auth?token={token}"
         await message.answer(f"Ваша ссылка для входа (действительна 5 минут):\n{dash_url}")
         return
 
