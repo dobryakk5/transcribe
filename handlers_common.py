@@ -1,6 +1,6 @@
 # handlers_common.py
 from aiogram.types import Message
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types.input_file import BufferedInputFile
 from aiogram import Bot, Dispatcher
 from db_handler import update_dictionary, get_today_purchases, get_user_purchases, update_last_purchase_field, get_last_purchase, delete_last_purchase
@@ -388,17 +388,38 @@ async def process_user_input(
         return
     
     if lower in ("🚪 кабинет", "кабинет"):
-        user_id = message.from_user.id
+     try:
+        user_id = str(message.from_user.id)  # Явное преобразование в строку
         token = str(uuid.uuid4())
-        r.setex(f"dash_token:{token}", 10300, user_id) # в Redis: dash_token:<token> → user_id (TTL=300 секунд)
+
+        # Сохраняем токен с обработкой возможных ошибок Redis
+        if not r.setex(f"dash_token:{token}", 300, user_id):
+            logger.error(f"Не удалось сохранить токен в Redis для user_id: {user_id}")
+            await message.answer("⚠️ Произошла ошибка при создании ссылки. Попробуйте позже.")
+            return
+
         dash_url = f"https://ai5.space/login?token={token}"
+
+        # Создаем клавиатуру с одной кнопкой
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔓 Войти в личный кабинет", url=dash_url)]
+            ]
+        )
+
         await message.answer(
-            f"🔒 Ваша ссылка для входа (действительна 5 минут):\n<code>{dash_url}</code>\n\n"
-            f"Не копируйте ссылку вручную - просто нажмите на нее",
+            "🔒 Ваша персональная ссылка для входа (действительна 5 минут):\n\n"
+            f"<code>{dash_url}</code>\n\n"
+            "Нажмите кнопку ниже для автоматического перехода",
+            reply_markup=keyboard,
             parse_mode="HTML",
             disable_web_page_preview=True
         )
-        return
+        
+     except Exception as e:
+        logger.exception(f"Ошибка при создании ссылки для user_id {user_id}: {str(e)}")
+        await message.answer("⚠️ Произошла непредвиденная ошибка. Пожалуйста, попробуйте позже.")
+    return
 
     if lower == "📄 список":
         await show_today_purchases(message.from_user.id, message)
