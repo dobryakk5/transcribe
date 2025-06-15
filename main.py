@@ -1,6 +1,7 @@
-#main.py
+# main.py
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
+from aiogram.exceptions import TelegramForbiddenError
 import asyncio
 import logging
 import os
@@ -19,13 +20,43 @@ dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def start_handler(message):
-    await on_start(message)
+    try:
+        await on_start(message)
+    except TelegramForbiddenError:
+        logging.warning(f"Пользователь {message.from_user.id} заблокировал бота")
+        # Здесь можно добавить логику обновления БД
+    except Exception as e:
+        logging.error(f"Ошибка в обработчике старта: {e}")
 
-# Регистрация обработчиков
-dp.message.register(handle_text_message, F.text & ~F.voice & ~F.photo)
-dp.message.register(handle_voice_message, F.voice)
-dp.message.register(handle_photo_message, F.photo)
+# Регистрация обработчиков с обработкой ошибок
+async def safe_text_handler(message):
+    try:
+        await handle_text_message(message)
+    except TelegramForbiddenError:
+        logging.warning(f"Пользователь {message.from_user.id} заблокировал бота")
+        # Обновить статус пользователя в БД
+    except Exception as e:
+        logging.error(f"Ошибка обработки текста: {e}")
 
+async def safe_voice_handler(message):
+    try:
+        await handle_voice_message(message)
+    except TelegramForbiddenError:
+        logging.warning(f"Пользователь {message.from_user.id} заблокировал бота")
+    except Exception as e:
+        logging.error(f"Ошибка обработки голоса: {e}")
+
+async def safe_photo_handler(message):
+    try:
+        await handle_photo_message(message)
+    except TelegramForbiddenError:
+        logging.warning(f"Пользователь {message.from_user.id} заблокировал бота")
+    except Exception as e:
+        logging.error(f"Ошибка обработки фото: {e}")
+
+dp.message.register(safe_text_handler, F.text & ~F.voice & ~F.photo)
+dp.message.register(safe_voice_handler, F.voice)
+dp.message.register(safe_photo_handler, F.photo)
 
 from logging.handlers import TimedRotatingFileHandler
 
@@ -57,13 +88,19 @@ console_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
-
 async def main():
     logging.info("Запуск polling…")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    except TelegramForbiddenError as e:
+        logging.error(f"Бот заблокирован пользователем: {e}")
+    except Exception as e:
+        logging.exception("Критическая ошибка в polling")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         logging.info("Бот остановлен пользователем")
+    except Exception as e:
+        logging.exception("Непредвиденная ошибка")

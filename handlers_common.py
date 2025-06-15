@@ -2,6 +2,7 @@
 from aiogram.types import Message
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.types.input_file import BufferedInputFile
+from aiogram import Bot, Dispatcher
 from db_handler import update_dictionary, get_today_purchases, get_user_purchases, update_last_purchase_field, get_last_purchase, delete_last_purchase
 from start_handlers import on_start
 import pandas as pd
@@ -12,13 +13,22 @@ from datetime import datetime
 import asyncpg
 from asyncpg.exceptions import UniqueViolationError
 import logging
+import uuid
+import redis
+import os
+from dotenv import load_dotenv
 
 # шифровка и передача user_id
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from itsdangerous import URLSafeSerializer
-import os
-API_TOKEN = os.getenv("API_TOKEN")
-serializer = URLSafeSerializer(API_TOKEN, salt="uid-salt")
+#from itsdangerous import URLSafeSerializer
+#serializer = URLSafeSerializer(API_TOKEN, salt="uid-salt")
+
+r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+
+# Инициализация бота
+load_dotenv()
+BOT_TOKEN = os.getenv("API_TOKEN")
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
 
 
 # Инициализация логгера
@@ -377,20 +387,13 @@ async def process_user_input(
         await on_start(message)
         return
     
-    if lower == "кабинет":
-        # 1. Получаем телеграм-ID
-        uid = message.from_user.id
-        # 2. Подписываем его
-        token = serializer.dumps(uid)
-        # 3. Формируем ссылку
-        url = f"https://ai5.space/?token={token}"
-        # 4. Кнопка с этой ссылкой
-        kb = InlineKeyboardMarkup(inline_keyboard=[])
-        
-        await message.answer(
-            "Вот ваша персональная ссылка на кабинет — никто больше не сможет попасть по ней, т.к. она подписана:\n", 
-            reply_markup=kb
-        )
+    if lower in ("🚪 кабинет", "кабинет"):
+        await message.answer(f"Создаю ссылку")
+        user_id = message.from_user.id
+        token = str(uuid.uuid4())
+        r.setex(f"dash_token:{token}", 300, user_id) # в Redis: dash_token:<token> → user_id (TTL=300 секунд)
+        dash_url = f"https://ai5.space/auth?token={token}"
+        await message.answer(f"Ваша ссылка для входа (действительна 5 минут):\n{dash_url}")
         return
 
     if lower == "📄 список":
