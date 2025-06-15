@@ -20,7 +20,7 @@ async def on_start(message: Message):
     )
 
     # Отправляем основное меню
-    await message.answer(" Привет, {message.from_user.first_name}!",
+    await message.answer(" Здравствуйте!",
         reply_markup=reply_kb
     )
 
