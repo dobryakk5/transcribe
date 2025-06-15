@@ -388,37 +388,23 @@ async def process_user_input(
         return
     
     if lower in ("🚪 кабинет", "кабинет"):
-     try:
-        user_id = str(message.from_user.id)  # Явное преобразование в строку
+        user_id = str(message.from_user.id)
         token = str(uuid.uuid4())
 
-        # Сохраняем токен с обработкой возможных ошибок Redis
-        if not r.setex(f"dash_token:{token}", 300, user_id):
-            logger.error(f"Не удалось сохранить токен в Redis для user_id: {user_id}")
-            await message.answer("⚠️ Произошла ошибка при создании ссылки. Попробуйте позже.")
-            return
+        r.setex(f"dash_token:{token}", 300, user_id)
+        dash_url = f"https://ai5.space/auth?token={token}"
 
-        dash_url = f"https://ai5.space/login?token={token}"
-
-        # Создаем клавиатуру с одной кнопкой
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="🔓 Войти в личный кабинет", url=dash_url)]
-            ]
-        )
+        # Создаем клавиатуру с кнопкой
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔓 Войти в кабинет", url=dash_url)]
+        ])
 
         await message.answer(
-            "🔒 Ваша персональная ссылка для входа (действительна 5 минут):\n\n"
-            f"<code>{dash_url}</code>\n\n"
-            "Нажмите кнопку ниже для автоматического перехода",
+            "🔒 Ваша ссылка для входа (действительна 5 минут):\n\n",
             reply_markup=keyboard,
             parse_mode="HTML",
             disable_web_page_preview=True
         )
-        
-     except Exception as e:
-        logger.exception(f"Ошибка при создании ссылки для user_id {user_id}: {str(e)}")
-        await message.answer("⚠️ Произошла непредвиденная ошибка. Пожалуйста, попробуйте позже.")
     return
 
     if lower == "📄 список":
