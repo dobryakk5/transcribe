@@ -261,17 +261,12 @@ async def get_today_purchases(user_id: int):
 
 async def get_user_purchases(user_id: int) -> list[asyncpg.Record]:
     """
-    Возвращает список записей из purchases для данного user_id и текущей даты.
+    Возвращает список записей из purchases для данного user_id, вызывая хранимую процедуру PostgreSQL.
     Каждая запись содержит поля category, subcategory, price, ts.
     """
     pool = await _get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT category, subcategory, price, ts
-            FROM purchases
-            WHERE user_id = $1
-            ORDER BY ts;
-        """, user_id)
+        rows = await conn.fetch("SELECT * FROM get_user_purchases($1);", user_id)
     return rows
 
 async def get_user_categories(user_id: int) -> list[asyncpg.Record]:

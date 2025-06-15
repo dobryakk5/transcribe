@@ -405,7 +405,7 @@ async def process_user_input(
             parse_mode="HTML",
             disable_web_page_preview=True
         )
-    return
+        return
 
     if lower == "📄 список":
         await show_today_purchases(message.from_user.id, message)
