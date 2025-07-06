@@ -4,19 +4,20 @@ import librosa
 import numpy as np
 
 def transcribe_v(input_file, whisper_model="small", language="ru"):
-    # 1. Читаем OGG
-    data, sr = sf.read(input_file)
+    data, sr = sf.read(input_file)  # обычно float64
 
-    # 2. Убедимся в формате: моно 16000 Гц
+    # Приведение частоты и каналов
     if sr != 16000:
-        data = librosa.resample(data,
-                                orig_sr=sr,
-                                target_sr=16000)
+        data = librosa.resample(data, orig_sr=sr, target_sr=16000)
         sr = 16000
     if data.ndim > 1:
         data = np.mean(data, axis=1)
 
-    # 3. Передаём массив напрямую (если поддерживает ваша версия)
+    # ➖ Приводим к float32, чтобы избежать ошибки dtype
+    data = data.astype(np.float32)
+
     model = whisper.load_model(whisper_model)
-    result = model.transcribe(data, language=language, samplerate=sr)
+    result = model.transcribe(
+        data, language=language, samplerate=sr
+    )
     return result.get("text", "").strip()
