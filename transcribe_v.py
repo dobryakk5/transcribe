@@ -1,31 +1,15 @@
-import os
 import whisper
 import soundfile as sf
 
-def transcribe_v(input_file: str,
-                 whisper_model: str = 'small',
-                 language: str = 'ru') -> str:
-    """
-    Выполняет транскрипцию аудиофайла с помощью Whisper,
-    предварительно конвертируя OGG → WAV через soundfile.
-    """
-    # 1. Конвертация OGG → WAV
-    base, _ = os.path.splitext(input_file)
-    wav_path = base + '.wav'
-
-    # читаем OGG (libsndfile под капотом) и записываем WAV
+def transcribe_v(input_file, whisper_model="small", language="ru"):
     data, samplerate = sf.read(input_file)
-    sf.write(wav_path, data, samplerate)
-
-    # 2. Загрузка модели и транскрибирование
+    # Whisper требует моно, 16000 Гц:
+    import numpy as np
+    if samplerate != 16000:
+        import librosa
+        data = librosa.resample(data, samplerate, 16000)
+    if data.ndim > 1:
+        data = np.mean(data, axis=1)
     model = whisper.load_model(whisper_model)
-    result = model.transcribe(wav_path, language=language)
-    text = result.get('text', '').strip()
-
-    # 3. Очистка временного WAV
-    try:
-        os.remove(wav_path)
-    except OSError:
-        pass
-
-    return text
+    result = model.transcribe(data, language=language, samplerate=16000)
+    return result.get("text", "").strip()
