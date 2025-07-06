@@ -2,6 +2,9 @@ import whisper
 import soundfile as sf
 import librosa
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 def transcribe_v(input_file: str,
                  whisper_model: str = 'small',
@@ -24,4 +27,9 @@ def transcribe_v(input_file: str,
     # 5. Транскрипция напрямую через Whisper
     model = whisper.load_model(whisper_model)
     result = model.transcribe(data, language=language, fp16=False)
-    return result["text"].strip()
+    
+    # 6. Логируем, что вернул Whisper
+    transcription = result.get("text", "").strip()
+    logger.info(f"Whisper returned transcription: {transcription!r}")
+    
+    return transcription
