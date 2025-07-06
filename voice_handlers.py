@@ -48,7 +48,8 @@ async def handle_new_expense_v(raw: str, message: Message):
     except Exception as e:
         await message.answer(f"❌ Не удалось сохранить: {e}")
 
-async def handle_voice_message(message: Message, bot: Bot):
+async def handle_voice_message(message: Message):
+    bot = message.bot 
     # Показываем анимированный индикатор обработки
     status_msg, animation_task = await show_processing_animation(message.chat.id, bot)
     
