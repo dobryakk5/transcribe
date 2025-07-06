@@ -1,24 +1,27 @@
 import whisper
 import soundfile as sf
-import numpy as np
 import librosa
+import numpy as np
 
-def transcribe_v(input_file, whisper_model="small", language="ru"):
-    # 1. Читаем аудио
-    data, sr = sf.read(input_file)
+def transcribe_v(input_file: str,
+                 whisper_model: str = 'small',
+                 language: str = 'ru') -> str:
+    # 1. Читаем OGG
+    data, sr = sf.read(input_file)  # обычно float64
+    
+    # 2. Ресемплируем к 16000 Гц, если нужно
     if sr != 16000:
         data = librosa.resample(data, orig_sr=sr, target_sr=16000)
         sr = 16000
+    
+    # 3. Моно: усреднение каналов
     if data.ndim > 1:
         data = np.mean(data, axis=1)
-    data = data.astype(np.float32)
-
+    
+    # 4. Приводим к float32 и нормализуем
+    data = data.astype(np.float32) / 32768.0  # формат PCM
+    
+    # 5. Транскрипция напрямую через Whisper
     model = whisper.load_model(whisper_model)
-
-    # 2. Конвертация в log-mel спектрограмму
-    mel = whisper.log_mel_spectrogram(data).to(model.device)
-
-    # 3. Декодирование
-    options = whisper.DecodingOptions(language=language)
-    result = whisper.decode(model, mel, options)
-    return result.text.strip()
+    result = model.transcribe(data, language=language, fp16=False)
+    return result["text"].strip()
